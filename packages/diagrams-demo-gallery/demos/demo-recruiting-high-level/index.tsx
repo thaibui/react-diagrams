@@ -1,8 +1,9 @@
-import createEngine, { DiagramModel, DefaultNodeModel, DefaultLinkModel, DefaultPortModel, LinkModelListener, LinkModel } from '@projectstorm/react-diagrams';
+import createEngine, { DiagramModel, DefaultNodeModel, DefaultLinkModel, DefaultPortModel, LinkModel, DiagramEngine, RightAngleLinkModel, RightAngleLinkFactory } from '@projectstorm/react-diagrams';
 import * as React from 'react';
-import { CanvasWidget } from '@projectstorm/react-canvas-core';
+import { CanvasWidget, AbstractModelFactory } from '@projectstorm/react-canvas-core';
 import { DemoCanvasWidget } from '../helpers/DemoCanvasWidget';
 import { Point } from '@projectstorm/geometry';
+import { action } from '@storybook/addon-actions';
 
 class Ref {
 	public toNamespace: string;
@@ -63,12 +64,12 @@ class Table {
 	}
 
 	addPrimaryKey(name: string) {
-		const port = this.node.addInPort(name);
+		const port = this.node.addPort(new RightAnglePortModel(true, name, name));
 		this.primaryKeys.set(name, port);
 	}
 
 	addForeignKey(name: string, ref: Ref, relationship?: string) {
-		const port = this.node.addInPort(name);
+		const port = this.node.addPort(new RightAnglePortModel(true, name, name));
 
 		ref.setFromPort(port);
 
@@ -80,7 +81,7 @@ class Table {
 	}
 
 	addColumn(name: string) {
-		const port = this.node.addInPort(name);
+		const port = this.node.addPort(new RightAnglePortModel(true, name, name));
 		this.columns.set(name, port);
 	}
 }
@@ -123,8 +124,10 @@ class Diagram {
 	 *
 	 * Any missing foreign key connections and typos will throw an error here.
 	 */
-	finalize(): DiagramModel {
+	finalize(engine: DiagramEngine): DiagramModel {
 		const diagramModel = new DiagramModel();
+
+		engine.getLinkFactories().registerFactory(new RightAngleLinkFactory());
 
 		this.namespaces.forEach(n => n.tables.forEach(t => {
 			// add table nodes
@@ -180,7 +183,25 @@ class Diagram {
 			});
 		}));
 
+		diagramModel.getModels().forEach(item => {
+			item.registerListener({
+				eventDidFire: (e) => {
+					if(e.function == "positionChanged") {
+						console.log(`table moved [${e.entity.position.x}, ${e.entity.position.y}]`);
+					} else if (e.function == "selectionChanged" && e.entity instanceof RightAngleLinkModel) {
+						console.log("link moved", e.entity.points);
+					}
+				}
+			});
+		});
+
 		return diagramModel;
+	}
+}
+
+class RightAnglePortModel extends DefaultPortModel {
+	createLinkModel(factory?: AbstractModelFactory<LinkModel>) {
+		return new RightAngleLinkModel();
 	}
 }
 
@@ -198,7 +219,13 @@ export default () => {
 				}],
 				columns: [{
 					name: 'name'
-				}]
+				}],
+				layout: {
+					position: {
+						x: 500,
+						y: 235
+					}
+				}
 			}, {
 				name: 'd_offer',
 				primary_keys: [{
@@ -209,25 +236,37 @@ export default () => {
 					reference: 'hr.d_employee.employee_id',
 					relationship: '1 to 1',
 				}],
+				layout: {
+					position: {
+						x: 115,
+						y: 312
+					}
+				}
 			}, {
 				name: 'd_internship',
 				primary_keys: [{
 					name: 'internship_id'
 				}],
 				foreign_keys: [{
-					name: 'employee_id',
-					reference: 'hr.d_employee.employee_id'
-				}, {
-					name: 'manager_employee_id',
-					reference: 'hr.d_employee.employee_id'
-				}, {
-					name: 'offer_sfid',
-					reference: 'hr.d_offer.offer_sfid'
-				}, {
-					name: 'returning_offer_sfid',
-					reference: 'hr.d_offer.offer_sfid'
-				},
+						name: 'employee_id',
+						reference: 'hr.d_employee.employee_id'
+					}, {
+						name: 'manager_employee_id',
+						reference: 'hr.d_employee.employee_id'
+					}, {
+						name: 'offer_sfid',
+						reference: 'hr.d_offer.offer_sfid'
+					}, {
+						name: 'returning_offer_sfid',
+						reference: 'hr.d_offer.offer_sfid'
+					},
 				],
+				layout: {
+					position: {
+						x: 60,
+						y: 50
+					}
+				}
 			},
 			]
 		}]
@@ -244,10 +283,17 @@ export default () => {
 		const _namespace = new Namespace(namespace.name);
 
 		namespace.tables.forEach(table => {
+
+			var position = new Point(startingPositionX + increment, startingPositionY);
+
+			if(table.layout && table.layout.position) {
+				position = new Point(table.layout.position.x, table.layout.position.y);
+			}
+
 			const node = new DefaultNodeModel({
 				name: table.name,
 				color: color,
-				position: new Point(startingPositionX + increment, startingPositionY),
+				position: position,
 			});
 			const _table = new Table(table.name, node);
 
@@ -284,7 +330,7 @@ export default () => {
 	console.log(diagram);
 
 	var engine = createEngine();
-	var model = diagram.finalize();
+	var model = diagram.finalize(engine);
 	engine.setModel(model);
 
 	return (
