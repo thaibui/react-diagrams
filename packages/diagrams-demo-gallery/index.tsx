@@ -24,6 +24,8 @@ addDecorator(fn => {
 	return fn();
 });
 
+import recruiting_high_level from './demos/demo-recruiting-high-level';
+import employee_position_data from './demos/demo-employee-position-data';
 import demo_simple from './demos/demo-simple';
 import demo_flow from './demos/demo-simple-flow';
 import demo_performance from './demos/demo-performance';
@@ -37,6 +39,10 @@ import demo_dynamic_ports from './demos/demo-dynamic-ports';
 import demo_alternative_linking from './demos/demo-alternative-linking';
 import demo_custom_delete_keys from './demos/demo-custom_delete_keys';
 import demo_custom_action from './demos/demo-custom-action';
+
+storiesOf('People Insights', module)
+	.add('Recruiting (high-level)', recruiting_high_level)
+	.add('Employee Position Data', employee_position_data);
 
 storiesOf('Simple Usage', module)
 	.add('Simple example', demo_simple)

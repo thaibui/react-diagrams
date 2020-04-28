@@ -27,6 +27,8 @@
 		"nodes"
 	],
 	"dependencies": {
+		"@projectstorm/react-canvas-core": "^6.0.1-beta.7",
+		"@projectstorm/react-diagrams": "^6.0.1-beta.7",
 		"gsap": "^3.0.1"
 	}
 }
