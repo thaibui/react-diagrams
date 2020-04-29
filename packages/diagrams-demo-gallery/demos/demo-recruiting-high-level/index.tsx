@@ -1,4 +1,4 @@
-import createEngine, { DiagramModel, DefaultNodeModel, DefaultLinkModel, DefaultPortModel, LinkModel, DiagramEngine, RightAngleLinkModel, RightAngleLinkFactory } from '@projectstorm/react-diagrams';
+import createEngine, { DiagramModel, DefaultNodeModel, DefaultLinkModel, DefaultPortModel, LinkModel, DiagramEngine, RightAngleLinkModel, RightAngleLinkFactory, PointModel, DefaultLinkModelOptions } from '@projectstorm/react-diagrams';
 import * as React from 'react';
 import { CanvasWidget, AbstractModelFactory } from '@projectstorm/react-canvas-core';
 import { DemoCanvasWidget } from '../helpers/DemoCanvasWidget';
@@ -12,6 +12,7 @@ class Ref {
 
 	public relationship?: string;
 	public fromPort?: DefaultPortModel;
+	public link?: DefaultLinkModel;
 
 	constructor(namespace: string, table: string, column: string) {
 		this.toNamespace = namespace;
@@ -27,6 +28,12 @@ class Ref {
 
 	public setRelationship(relationship: string): Ref {
 		this.relationship = relationship;
+
+		return this;
+	}
+
+	public setLink(link: DefaultLinkModel) : Ref {
+		this.link = link;
 
 		return this;
 	}
@@ -104,7 +111,7 @@ class Namespace {
 }
 
 class Diagram {
-	private name: string;
+	public name: string;
 	private namespaces: Map<string, Namespace> = new Map();
 
 	constructor(name: string) {
@@ -173,7 +180,10 @@ class Diagram {
 				}
 
 				// establish the link
-				const link = ref.fromPort.link<DefaultLinkModel>(toPort);
+				const link = ref.fromPort.link<RefRightAngleLinkModel>(toPort);
+
+				ref.setLink(link);
+				link.setRef(ref);
 
 				if(ref.relationship) {
 					link.addLabel(ref.relationship);
@@ -183,33 +193,147 @@ class Diagram {
 			});
 		}));
 
-		diagramModel.getModels().forEach(item => {
-			item.registerListener({
-				eventDidFire: (e) => {
-					if(e.function == "positionChanged") {
-						console.log(`table moved [${e.entity.position.x}, ${e.entity.position.y}]`);
-					} else if (e.function == "selectionChanged" && e.entity instanceof RightAngleLinkModel) {
-						console.log("link moved", e.entity.points);
-					}
-				}
-			});
-		});
+		// diagramModel.getModels().forEach(item => {
+		// 	item.registerListener({
+		// 		eventDidFire: (e) => {
+		// 			if(e.function == "positionChanged") {
+		// 				console.log(`table moved [${e.entity.position.x}, ${e.entity.position.y}]`);
+		// 			} else if (e.function == "selectionChanged" && e.entity instanceof RefRightAngleLinkModel) {
+		// 				console.log("link moved", e.entity.points, e.entity.ref);
+		// 				var schema = loadSchema(this.name);
+		// 			} else {
+		// 				console.log(e.function);
+		// 			}
+		// 		}
+		// 	});
+		// });
+
+		// diagramModel.registerListener({
+		// 	nodesUpdated: (e) => console.log("nodesUpdated"),
+		// 	linksUpdate: (e) => console.log("linksUpdated"),
+		// 	offsetUpdated: (e) => console.log("offsetsUpdated"),
+		// 	zoomUpdated: (e) => console.log("zoomUpdated"),
+		// 	gridUpdated: (e) => console.log("gridUpdated"),
+		// 	selectionChanged: (e) => console.log("selectionUpdated"),
+		// 	entityRemoved: (e) => console.log("entityUpdated"),
+		// });
 
 		return diagramModel;
+	}
+
+}
+
+class RefRightAngleLinkModel extends RightAngleLinkModel {
+	public ref : Ref;
+
+	private pointsLastPositions: Map<string, Point> = new Map();
+
+	constructor(options: DefaultLinkModelOptions = {}) {
+		super(options);
+
+		this.registerEventListeners();
+	}
+
+	registerEventListeners() {
+		var _this = this;
+
+		this.registerListener({
+			pointAdded: function(e) {
+				e.pointModel.registerListener({
+					positionChanged: function(e) {
+						const point: PointModel = e.entity;
+						const prevPosition = _this.pointsLastPositions.has(point.getID())
+							? _this.pointsLastPositions.get(point.getID())
+							: null;
+
+						if(prevPosition &&
+							(prevPosition.x !== point.position.x || prevPosition.y !== point.position.y)) {
+							console.log(`point ${point.getID()} position changed to`, point.position);
+						}
+
+						_this.pointsLastPositions.set(point.getID(), point.position.clone());
+					}
+				});
+			},
+
+			pointRemoved: function(e) {
+				console.log("points removed", e);
+			},
+
+			pointsSet: function(e) {
+				console.log("points set", e);
+			}
+		});
+	}
+
+	setRef(ref: Ref) {
+		this.ref = ref;
 	}
 }
 
 class RightAnglePortModel extends DefaultPortModel {
 	createLinkModel(factory?: AbstractModelFactory<LinkModel>) {
-		return new RightAngleLinkModel();
+		return new RefRightAngleLinkModel();
 	}
+}
+
+function loadSchema(name: string): Schema {
+	return JSON.parse(window.localStorage.getItem(name));
+}
+
+function hasSchema(name: string) {
+	return window.localStorage.getItem(name);
+}
+
+function saveSchema(name: string, schema: Schema) {
+	window.localStorage.setItem(name, JSON.stringify(schema));
+}
+
+class SchemaColumn {
+	name: string;
+}
+
+class LayoutForeignKey {
+	points: Array<LayoutPosition>
+}
+
+class SchemaColumnForeignKey extends SchemaColumn {
+	reference: string;
+	relationship?: string;
+	layout?: LayoutForeignKey;
+}
+
+class LayoutPosition {
+	x: number;
+	y: number;
+}
+
+class LayoutTable {
+	position: LayoutPosition;
+}
+
+class SchemaTable {
+	name: string;
+	primary_keys?: Array<SchemaColumn>;
+	foreign_keys?: Array<SchemaColumnForeignKey>;
+	columns?: Array<SchemaColumn>;
+	layout?: LayoutTable;
+}
+
+class SchemaNamespace {
+	name: string;
+	tables: Array<SchemaTable>;
+}
+
+class Schema {
+	namespaces: Array<SchemaNamespace>;
 }
 
 export default () => {
 
 	const color = 'rgb(0,192,255)';
 
-	const schema = {
+	var schema: Schema = {
 		namespaces: [{
 			name: 'hr',
 			tables: [{
@@ -272,12 +396,21 @@ export default () => {
 		}]
 	};
 
+	const diagramName = "Recuriting high-level";
+
+	// rudimentary way of saving our states for now
+	if(!hasSchema(diagramName)) {
+		saveSchema(diagramName, schema);
+	} else {
+		schema = loadSchema(diagramName);
+	}
+
 	var startingPositionX = 100;
 	var startingPositionY = 100;
 	const positionIncrement = 200;
 
 	var increment = 0;
-	const diagram = new Diagram("Recruiting high-level");
+	const diagram = new Diagram(diagramName);
 
 	schema.namespaces.forEach(namespace => {
 		const _namespace = new Namespace(namespace.name);
@@ -326,6 +459,7 @@ export default () => {
 
 		diagram.addNamespace(_namespace);
 	});
+
 
 	console.log(diagram);
 

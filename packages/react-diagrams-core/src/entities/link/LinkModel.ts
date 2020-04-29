@@ -18,6 +18,12 @@ export interface LinkModelListener extends BaseModelListener {
 	sourcePortChanged?(event: BaseEntityEvent<LinkModel> & { port: null | PortModel }): void;
 
 	targetPortChanged?(event: BaseEntityEvent<LinkModel> & { port: null | PortModel }): void;
+
+	pointsSet?(event: BaseEntityEvent<LinkModel> & { points: null | Array<PointModel> }): void;
+
+	pointAdded?(event: BaseEntityEvent<LinkModel> & { point: null | PointModel }): void;
+
+	pointRemoved?(event: BaseEntityEvent<LinkModel> & { point: null | PointModel }): void;
 }
 
 export interface LinkModelGenerics extends BaseModelGenerics {
@@ -266,29 +272,35 @@ export class LinkModel<G extends LinkModelGenerics = LinkModelGenerics> extends 
 			point.setParent(this);
 		});
 		this.points = points;
+		this.fireEvent({ points }, 'pointsSet');
 	}
 
 	removePoint(pointModel: PointModel) {
-		this.points.splice(this.getPointIndex(pointModel), 1);
+		const removedPoint = this.points.splice(this.getPointIndex(pointModel), 1);
+		this.fireEvent({ removedPoint }, 'pointRemoved');
 	}
 
 	removePointsBefore(pointModel: PointModel) {
-		this.points.splice(0, this.getPointIndex(pointModel));
+		const removedPoint = this.points.splice(0, this.getPointIndex(pointModel));
+		this.fireEvent({ removedPoint }, 'pointRemoved');
 	}
 
 	removePointsAfter(pointModel: PointModel) {
-		this.points.splice(this.getPointIndex(pointModel) + 1);
+		const removedPoint = this.points.splice(this.getPointIndex(pointModel) + 1);
+		this.fireEvent({ removedPoint }, 'pointRemoved');
 	}
 
 	removeMiddlePoints() {
 		if (this.points.length > 2) {
-			this.points.splice(0, this.points.length - 2);
+			const removedPoint = this.points.splice(0, this.points.length - 2);
+			this.fireEvent({ removedPoint }, 'pointRemoved');
 		}
 	}
 
 	addPoint<P extends PointModel>(pointModel: P, index = 1): P {
 		pointModel.setParent(this);
 		this.points.splice(index, 0, pointModel);
+		this.fireEvent({ pointModel }, 'pointAdded');
 		return pointModel;
 	}
 
