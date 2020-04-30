@@ -8,6 +8,9 @@ module.exports = async ({ config, mode }) => {
 		resolve: {
 			extensions: ['.tsx', '.ts', '.js']
 		},
+		output: {
+			publicPath: 'https://thaibui.github.io/react-diagrams/'
+		},
 		module: {
 			rules: [
 				{
