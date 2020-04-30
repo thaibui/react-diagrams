@@ -10,7 +10,7 @@
 	},
 	"scripts": {
 		"start": "../../node_modules/.bin/start-storybook",
-		"storybook:build": "../../node_modules/.bin/build-storybook -c .storybook -o .out",
+		"storybook:build": "../../node_modules/.bin/build-storybook -c .storybook -o erd-demo1 ",
 		"github": "../../node_modules/.bin/storybook-to-ghpages",
 		"test:run": "../../node_modules/.bin/jest --no-cache",
 		"test": "yarn storybook:build && yarn test:run"
@@ -30,6 +30,7 @@
 		"@projectstorm/react-canvas-core": "^6.0.1-beta.7",
 		"@projectstorm/react-diagrams": "^6.0.1-beta.7",
 		"gsap": "^3.0.1",
-		"uuid": "^7.0.3"
+		"uuid": "^7.0.3",
+		"webpack-merge": "^4.2.2"
 	}
 }

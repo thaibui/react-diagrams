@@ -4,6 +4,8 @@ import { CanvasWidget, AbstractModelFactory } from '@projectstorm/react-canvas-c
 import { DemoCanvasWidget } from '../helpers/DemoCanvasWidget';
 import { DemoButton, DemoWorkspaceWidget } from '../helpers/DemoWorkspaceWidget';
 import { Point } from '@projectstorm/geometry';
+import { action } from '@storybook/addon-actions';
+
 import { v4 as uuid } from 'uuid';
 
 interface Saveable {
@@ -68,7 +70,6 @@ class Ref extends Entity<SchemaColumnForeignKey, DiagramModelTable, void> {
 
 	save(id: string) {
 		window.localStorage.setItem(this.getRefId(id), JSON.stringify(this.layoutPointPositions));
-		console.log(this.getRefId(id), "saved", this.layoutPointPositions);
 	}
 
 	load(id: string): void {
@@ -497,8 +498,6 @@ class Diagram extends Entity<Schema, DiagramEngine, DiagramModel> {
 
 		this.namespaces.forEach((namespace, _) => namespace.finalize(diagramModelNamespaces));
 
-		console.log("DiagramModel", diagramModel);
-
 		return diagramModel;
 	}
 
@@ -541,7 +540,6 @@ class RefRightAngleLinkModel extends RightAngleLinkModel {
 				// update our layout with the latest point positions (it doesn't save anything yet)
 				_this.ref.setLayoutPointPositions(_this.points.map(p => p.getPosition()));
 				_this.registerPositionChangedListener(e.point);
-				console.log("point added", e);
 			},
 
 			selectionChanged: function(e) {
@@ -553,7 +551,6 @@ class RefRightAngleLinkModel extends RightAngleLinkModel {
 			},
 
 			pointsSet: function(e) {
-				console.log("points set", e);
 				_this.getPoints().forEach(pointModel => {
 					_this.registerPositionChangedListener(pointModel);
 				})
@@ -585,6 +582,7 @@ function hasSchema(name: string) {
 }
 
 function saveSchema(name: string, schema: Schema) {
+	action(`Schema: \n ${JSON.stringify(schema, undefined, 2)}`)();
 	window.localStorage.setItem(name, JSON.stringify(schema));
 }
 
@@ -648,6 +646,7 @@ class ERDApp extends React.Component<any, any> {
 
 		diagram.load(this.id);
 
+		action(`loaded from: ${this.id}`)();
 		console.log("loaded saved id: " + this.id);
 	}
 
@@ -656,6 +655,7 @@ class ERDApp extends React.Component<any, any> {
 
 		const id = diagram.saveAs();
 
+		action(`saved to: ${id}`)();
 		console.log("diagram saved as id: ", id);
 	}
 
@@ -685,67 +685,190 @@ export default () => {
 	const color = 'rgb(0,192,255)';
 
 	var schema: Schema = {
-		namespaces: [{
-			name: 'hr',
-			tables: [{
-				name: 'd_employee',
-				primary_keys: [{
-					name: 'employee_id'
-				}],
-				columns: [{
-					name: 'name'
-				}],
-				layout: {
-					position: {
-						x: 500,
-						y: 235
-					}
-				}
-			}, {
-				name: 'd_offer',
-				primary_keys: [{
-					name: 'offer_sfid'
-				}],
-				foreign_keys: [{
-					name: 'candidate_employee_fbid',
-					reference: 'hr.d_employee.employee_id',
-					relationship: '1 to 1',
-				}],
-				layout: {
-					position: {
-						x: 115,
-						y: 312
-					}
-				}
-			}, {
-				name: 'd_internship',
-				primary_keys: [{
-					name: 'internship_id'
-				}],
-				foreign_keys: [{
-						name: 'employee_id',
-						reference: 'hr.d_employee.employee_id'
-					}, {
-						name: 'manager_employee_id',
-						reference: 'hr.d_employee.employee_id'
-					}, {
-						name: 'offer_sfid',
-						reference: 'hr.d_offer.offer_sfid'
-					}, {
-						name: 'returning_offer_sfid',
-						reference: 'hr.d_offer.offer_sfid'
-					},
+		"namespaces": [
+		  {
+			"name": "hr",
+			"tables": [
+			  {
+				"name": "d_employee",
+				"primary_keys": [
+				  {
+					"name": "employee_id"
+				  }
 				],
-				layout: {
-					position: {
-						x: 60,
-						y: 50
-					}
+				"columns": [
+				  {
+					"name": "name"
+				  }
+				],
+				"layout": {
+				  "position": {
+					"x": 500,
+					"y": 235
+				  }
 				}
-			},
+			  },
+			  {
+				"name": "d_offer",
+				"primary_keys": [
+				  {
+					"name": "offer_sfid"
+				  }
+				],
+				"foreign_keys": [
+				  {
+					"name": "candidate_employee_fbid",
+					"reference": "hr.d_employee.employee_id",
+					"relationship": "1 to 1",
+					"layout": {
+					  "points": [
+						{
+						  "x": 71.5,
+						  "y": 360.5
+						},
+						{
+						  "x": 348,
+						  "y": 360.5
+						},
+						{
+						  "x": 348,
+						  "y": 268.5
+						},
+						{
+						  "x": 509.5,
+						  "y": 268.5
+						}
+					  ]
+					}
+				  }
+				],
+				"layout": {
+				  "position": {
+					"x": 62,
+					"y": 311
+				  }
+				}
+			  },
+			  {
+				"name": "d_internship",
+				"primary_keys": [
+				  {
+					"name": "internship_id"
+				  }
+				],
+				"foreign_keys": [
+				  {
+					"name": "employee_id",
+					"reference": "hr.d_employee.employee_id",
+					"layout": {
+					  "points": [
+						{
+						  "x": 69.5,
+						  "y": 99.5
+						},
+						{
+						  "x": 348,
+						  "y": 99.5
+						},
+						{
+						  "x": 348,
+						  "y": 268.5
+						},
+						{
+						  "x": 509.5,
+						  "y": 268.5
+						}
+					  ]
+					}
+				  },
+				  {
+					"name": "manager_employee_id",
+					"reference": "hr.d_employee.employee_id",
+					"layout": {
+					  "points": [
+						{
+						  "x": 69.5,
+						  "y": 115.5
+						},
+						{
+						  "x": 348,
+						  "y": 115.5
+						},
+						{
+						  "x": 348,
+						  "y": 269
+						},
+						{
+						  "x": 509.5,
+						  "y": 269
+						},
+						{
+						  "x": 509.5,
+						  "y": 268.5
+						}
+					  ]
+					}
+				  },
+				  {
+					"name": "offer_sfid",
+					"reference": "hr.d_offer.offer_sfid",
+					"layout": {
+					  "points": [
+						{
+						  "x": 69.5,
+						  "y": 131.5
+						},
+						{
+						  "x": 33,
+						  "y": 131.5
+						},
+						{
+						  "x": 33,
+						  "y": 344.5
+						},
+						{
+						  "x": 71.5,
+						  "y": 344.5
+						}
+					  ]
+					}
+				  },
+				  {
+					"name": "returning_offer_sfid",
+					"reference": "hr.d_offer.offer_sfid",
+					"layout": {
+					  "points": [
+						{
+						  "x": 69.5,
+						  "y": 147.5
+						},
+						{
+						  "x": 33,
+						  "y": 147.5
+						},
+						{
+						  "x": 33,
+						  "y": 344.5
+						},
+						{
+						  "x": 71.5,
+						  "y": 344.5
+						}
+					  ]
+					}
+				  }
+				],
+				"layout": {
+				  "position": {
+					"x": 60,
+					"y": 50
+				  }
+				}
+			  }
 			]
-		}]
-	};
+		  }
+		]
+	  };
 
 	const diagramName = "Recuriting high-level";
 
