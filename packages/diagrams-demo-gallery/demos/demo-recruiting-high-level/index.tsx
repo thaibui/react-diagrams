@@ -2,11 +2,9 @@ import createEngine, { DiagramModel, DefaultNodeModel, DefaultLinkModel, Default
 import * as React from 'react';
 import { CanvasWidget, AbstractModelFactory } from '@projectstorm/react-canvas-core';
 import { DemoCanvasWidget } from '../helpers/DemoCanvasWidget';
-import { DemoButton, DemoWorkspaceWidget, InputButtons } from '../helpers/DemoWorkspaceWidget';
+import { DemoButton, DemoWorkspaceWidget } from '../helpers/DemoWorkspaceWidget';
 import { Point } from '@projectstorm/geometry';
-import { action } from '@storybook/addon-actions';
 import { v4 as uuid } from 'uuid';
-import { stat } from 'fs';
 
 interface Saveable {
 	save(id: string);
@@ -176,7 +174,6 @@ class Ref extends Entity<SchemaColumnForeignKey, DiagramModelTable, void> {
 	public static parseFulllyQualifiedName(fullyQualifiedName: string): FullyQualifiedName {
 		const splits = fullyQualifiedName.split(".");
 		if(splits.length !== 3) {
-			console.log(splits);
 			throw new Error(`A fully qualified name ${fullyQualifiedName} should have <namespace>.<table>.<column> format`);
 		}
 
@@ -478,7 +475,7 @@ class Diagram extends Entity<Schema, DiagramEngine, DiagramModel> {
 
 		this.namespaces.forEach((namespace, _) => namespace.finalize(diagramModelNamespaces));
 
-		console.log(diagramModel);
+		console.log("DiagramModel", diagramModel);
 
 		return diagramModel;
 	}
@@ -526,8 +523,7 @@ class RefRightAngleLinkModel extends RightAngleLinkModel {
 			},
 
 			selectionChanged: function(e) {
-				const link: RefRightAngleLinkModel = e.entity;
-				console.log(`link ${link.getID()} selected, current points: `, link.points);
+				const link = e.entity as RefRightAngleLinkModel;
 			},
 
 			pointRemoved: function(e) {
@@ -535,7 +531,6 @@ class RefRightAngleLinkModel extends RightAngleLinkModel {
 			},
 
 			pointsSet: function(e) {
-				console.log("points set", e);
 			}
 		});
 	}
