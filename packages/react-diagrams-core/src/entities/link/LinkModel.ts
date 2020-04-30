@@ -277,30 +277,30 @@ export class LinkModel<G extends LinkModelGenerics = LinkModelGenerics> extends 
 
 	removePoint(pointModel: PointModel) {
 		const removedPoint = this.points.splice(this.getPointIndex(pointModel), 1);
-		this.fireEvent({ removedPoint }, 'pointRemoved');
+		this.fireEvent({ point: removedPoint }, 'pointRemoved');
 	}
 
 	removePointsBefore(pointModel: PointModel) {
 		const removedPoint = this.points.splice(0, this.getPointIndex(pointModel));
-		this.fireEvent({ removedPoint }, 'pointRemoved');
+		this.fireEvent({ point: removedPoint }, 'pointRemoved');
 	}
 
 	removePointsAfter(pointModel: PointModel) {
 		const removedPoint = this.points.splice(this.getPointIndex(pointModel) + 1);
-		this.fireEvent({ removedPoint }, 'pointRemoved');
+		this.fireEvent({ point: removedPoint }, 'pointRemoved');
 	}
 
 	removeMiddlePoints() {
 		if (this.points.length > 2) {
 			const removedPoint = this.points.splice(0, this.points.length - 2);
-			this.fireEvent({ removedPoint }, 'pointRemoved');
+			this.fireEvent({ point: removedPoint }, 'pointRemoved');
 		}
 	}
 
 	addPoint<P extends PointModel>(pointModel: P, index = 1): P {
 		pointModel.setParent(this);
 		this.points.splice(index, 0, pointModel);
-		this.fireEvent({ pointModel }, 'pointAdded');
+		this.fireEvent({ point: pointModel }, 'pointAdded');
 		return pointModel;
 	}
 

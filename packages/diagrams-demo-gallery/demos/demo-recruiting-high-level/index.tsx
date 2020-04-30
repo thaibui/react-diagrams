@@ -1,4 +1,4 @@
-import createEngine, { DiagramModel, DefaultNodeModel, DefaultLinkModel, DefaultPortModel, LinkModel, DiagramEngine, RightAngleLinkModel, RightAngleLinkFactory, PointModel, DefaultLinkModelOptions } from '@projectstorm/react-diagrams';
+import createEngine, { PointModel, DiagramModel, DefaultNodeModel, DefaultLinkModel, DefaultPortModel, LinkModel, DiagramEngine, RightAngleLinkModel, RightAngleLinkFactory, DefaultLinkModelOptions } from '@projectstorm/react-diagrams';
 import * as React from 'react';
 import { CanvasWidget, AbstractModelFactory } from '@projectstorm/react-canvas-core';
 import { DemoCanvasWidget } from '../helpers/DemoCanvasWidget';
@@ -88,7 +88,7 @@ class Ref extends Entity<SchemaColumnForeignKey, DiagramModelTable, void> {
 		this.relationship = schema.relationship;
 
 		const keyName = `${this.sourceTable}.${schema.name}`;
-		const port = this.sourceNode.addPort(new RightAnglePortModel(true, keyName, schema.name));
+		const port = this.sourceNode.addPort(new RightAnglePortModel(keyName, schema.name));
 
 		this.setFromPort(port);
 
@@ -217,6 +217,8 @@ class Table extends Entity<SchemaTable, DiagramModelNamespaces, void> {
 	public foreignKeys: Map<string, Ref> = new Map();
 	public columns: Map<string, DefaultPortModel> = new Map();
 
+	private layout: LayoutTable;
+
 	TABLE_COLOR = 'rgb(0,192,255)';
 
 	constructor(namespace: string) {
@@ -226,13 +228,13 @@ class Table extends Entity<SchemaTable, DiagramModelNamespaces, void> {
 	}
 
 	addPrimaryKey(name: string) {
-		const port = this.node.addPort(new RightAnglePortModel(true, name, name));
+		const port = this.node.addPort(new RightAnglePortModel(name, name));
 		this.primaryKeys.set(name, port);
 	}
 
 	addForeignKey(name: string, ref: Ref, relationship?: string, layout?: LayoutForeignKey) {
 		const keyName = `${this.name}.${name}`
-		const port = this.node.addPort(new RightAnglePortModel(true, keyName, name));
+		const port = this.node.addPort(new RightAnglePortModel(keyName, name));
 
 		ref.setFromPort(port);
 
@@ -248,15 +250,21 @@ class Table extends Entity<SchemaTable, DiagramModelNamespaces, void> {
 	}
 
 	addColumn(name: string) {
-		const port = this.node.addPort(new RightAnglePortModel(true, name, name));
+		const port = this.node.addPort(new RightAnglePortModel(name, name));
 		this.columns.set(name, port);
 	}
 
+	getRefId(id: string) {
+		return `Table:${id}:${this.namespace}.${this.name}`
+	}
+
 	save(id: string) {
+		window.localStorage.setItem(this.getRefId(id), JSON.stringify(this.layout));
 		this.foreignKeys.forEach((ref, _) => ref.save(id));
 	}
 
 	load(id: string): void {
+		this.layout = JSON.parse(window.localStorage.getItem(this.getRefId(id)));
 		this.foreignKeys.forEach((ref, _) => ref.load(id));
 	}
 
@@ -267,6 +275,10 @@ class Table extends Entity<SchemaTable, DiagramModelNamespaces, void> {
 
 		if(schema.layout && schema.layout.position) {
 			position = new Point(schema.layout.position.x, schema.layout.position.y);
+		}
+
+		this.layout = {
+			position: position
 		}
 
 		const tableName = `${this.namespace}.${schema.name}`;
@@ -305,6 +317,8 @@ class Table extends Entity<SchemaTable, DiagramModelNamespaces, void> {
 	}
 
 	syncSchema(schema: SchemaTable) {
+		schema.layout = this.layout;
+
 		if(this.foreignKeys) {
 			this.foreignKeys.forEach((ref, columnName) => {
 				if(!schema.foreign_keys) {
@@ -320,6 +334,14 @@ class Table extends Entity<SchemaTable, DiagramModelNamespaces, void> {
 		// finalize table nodes
 		model.model.addNode(this.node);
 		console.log(`Table ${this.name} is added to diagram`);
+
+		// table layout position listener
+		const _this = this;
+		this.node.registerListener({
+			positionChanged: function(e) {
+				_this.layout.position = (e.entity as DefaultNodeModel).getPosition().clone();
+			}
+		});
 
 		// finalize foreign key nodes
 		this.foreignKeys.forEach((ref, _) => {
@@ -493,33 +515,33 @@ class RefRightAngleLinkModel extends RightAngleLinkModel {
 		this.registerEventListeners();
 	}
 
+	registerPositionChangedListener(pointModel: PointModel) {
+		const _this = this;
+
+		pointModel.registerListener({
+			positionChanged: function(e) {
+				const index = _this.getPointIndex(pointModel);
+				const prevPosition = _this.ref.layoutPointPositions.length > index
+					? _this.ref.layoutPointPositions[index]
+					: null;
+
+				if(prevPosition &&
+					(prevPosition.x !== pointModel.getPosition().x || prevPosition.y !== pointModel.getPosition().y)) {
+					_this.ref.setLayoutPointPositions(_this.points.map(p => p.getPosition()));
+				}
+			}
+		});
+	}
+
 	registerEventListeners() {
 		var _this = this;
 
 		this.registerListener({
 			pointAdded: function(e) {
-				const link = e.entity as RefRightAngleLinkModel;
-				const ref = link.ref;
-
 				// update our layout with the latest point positions (it doesn't save anything yet)
-				ref.setLayoutPointPositions(link.points.map(p => p.position));
-
-				e.pointModel.registerListener({
-					positionChanged: function(e) {
-						const point: PointModel = e.entity;
-						const index = link.getPointIndex(point);
-						const prevPosition = _this.pointsLastPositions.has(point.getID())
-							? _this.pointsLastPositions.get(point.getID())
-							: null;
-
-						if(prevPosition &&
-							(prevPosition.x !== point.position.x || prevPosition.y !== point.position.y)) {
-							ref.setLayoutPointPositions(link.points.map(p => p.position));
-						}
-
-						_this.pointsLastPositions.set(point.getID(), point.position.clone());
-					}
-				});
+				_this.ref.setLayoutPointPositions(_this.points.map(p => p.getPosition()));
+				_this.registerPositionChangedListener(e.point);
+				console.log("point added", e);
 			},
 
 			selectionChanged: function(e) {
@@ -531,6 +553,10 @@ class RefRightAngleLinkModel extends RightAngleLinkModel {
 			},
 
 			pointsSet: function(e) {
+				console.log("points set", e);
+				_this.getPoints().forEach(pointModel => {
+					_this.registerPositionChangedListener(pointModel);
+				})
 			}
 		});
 	}
@@ -541,6 +567,10 @@ class RefRightAngleLinkModel extends RightAngleLinkModel {
 }
 
 class RightAnglePortModel extends DefaultPortModel {
+	constructor(name: string, label: string) {
+		super(true, name, label);
+	}
+
 	createLinkModel(factory?: AbstractModelFactory<LinkModel>) {
 		return new RefRightAngleLinkModel();
 	}
