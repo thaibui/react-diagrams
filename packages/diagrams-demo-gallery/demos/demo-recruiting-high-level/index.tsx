@@ -2,10 +2,47 @@ import createEngine, { DiagramModel, DefaultNodeModel, DefaultLinkModel, Default
 import * as React from 'react';
 import { CanvasWidget, AbstractModelFactory } from '@projectstorm/react-canvas-core';
 import { DemoCanvasWidget } from '../helpers/DemoCanvasWidget';
+import { DemoButton, DemoWorkspaceWidget, InputButtons } from '../helpers/DemoWorkspaceWidget';
 import { Point } from '@projectstorm/geometry';
 import { action } from '@storybook/addon-actions';
+import { v4 as uuid } from 'uuid';
+import { stat } from 'fs';
 
-class Ref {
+interface Saveable {
+	save(id: string);
+	load(id: string): void;
+}
+
+interface Finalizable<M, R> {
+	finalize(model: M): R;
+}
+
+interface SchemaLoader<T> {
+	loadSchema(schema: T);
+	syncSchema(schema: T);
+}
+
+interface FullyQualifiedName {
+	namespace: string;
+	table: string;
+	column: string;
+}
+
+abstract class Entity<T, M, R> implements Saveable, Finalizable<M, R>, SchemaLoader<T> {
+	constructor() {
+	}
+
+	abstract save(id: string);
+	abstract load(id: string);
+	abstract syncSchema(schema: T);
+	abstract loadSchema(schema: T);
+	abstract finalize(model: M): R;
+}
+
+class Ref extends Entity<SchemaColumnForeignKey, DiagramModelTable, void> {
+	private sourceTable: string;
+	private sourceNode: DefaultNodeModel;
+
 	public toNamespace: string;
 	public toTable: string;
 	public toColumn: string;
@@ -14,10 +51,108 @@ class Ref {
 	public fromPort?: DefaultPortModel;
 	public link?: DefaultLinkModel;
 
-	constructor(namespace: string, table: string, column: string) {
-		this.toNamespace = namespace;
-		this.toTable = table;
-		this.toColumn = column;
+	// positions of points, if there's any. Empty doesn't mean we don't have points; it
+	// means the layout will automatically position them in the graph. Update this also
+	// doesn't reposition the points on the graph. It merely used as a place to keep
+	// track of the last known positions for saving.
+	public layoutPointPositions: Array<Point> = [];
+
+	constructor(sourceTable: string, sourceNode: DefaultNodeModel) {
+		super();
+
+		this.sourceTable = sourceTable;
+		this.sourceNode = sourceNode;
+	}
+
+	getRefId(id: string) {
+		return `Ref:${id}:${this.fromPort.getName()}->${this.toNamespace}.${this.toTable}.${this.toColumn}`
+	}
+
+	save(id: string) {
+		window.localStorage.setItem(this.getRefId(id), JSON.stringify(this.layoutPointPositions));
+		console.log(this.getRefId(id), "saved", this.layoutPointPositions);
+	}
+
+	load(id: string): void {
+		const state = window.localStorage.getItem(this.getRefId(id));
+
+		if(state) {
+			this.layoutPointPositions = JSON.parse(state);
+		}
+	}
+
+	loadSchema(schema: SchemaColumnForeignKey) {
+		const names = Ref.parseFulllyQualifiedName(schema.reference);
+
+		this.toNamespace = names.namespace;
+		this.toTable = names.table;
+		this.toColumn = names.column;
+		this.relationship = schema.relationship;
+
+		const keyName = `${this.sourceTable}.${schema.name}`;
+		const port = this.sourceNode.addPort(new RightAnglePortModel(true, keyName, schema.name));
+
+		this.setFromPort(port);
+
+		if(schema.layout && schema.layout.points && schema.layout.points.length > 0) {
+			this.setLayoutPointPositions(schema.layout.points.map(point => new Point(point.x, point.y)));
+		}
+	}
+
+	syncSchema(schema: SchemaColumnForeignKey) {
+		if(this.layoutPointPositions || this.layoutPointPositions.length > 0) {
+			if(!schema.layout) {
+				schema.layout = {
+					points: []
+				};
+			}
+
+			schema.layout.points = this.layoutPointPositions;
+		}
+	}
+
+	finalize(model: DiagramModelTable) {
+		const existInPrimary = model.table.primaryKeys.has(this.toColumn);
+		const existInForeign = model.table.foreignKeys.has(this.toColumn);
+		const existInColumn = model.table.columns.has(this.toColumn);
+
+		let toPort;
+
+		if(!existInPrimary) {
+			if(!existInForeign) {
+				if(!existInColumn) {
+					throw new Error(`Incorrect column ${this.toColumn} from foreign key ` +
+						`ref ${this.toString()} for table ${model.table.name}`);
+				} else {
+					console.warn(`Foreign key ${this.toString()} references a normal column ${this.toColumn} ` +
+						`instead of a primary key on table ${model.table.name}`);
+
+					toPort = model.table.columns.get(this.toColumn);
+				}
+			} else {
+				console.warn(`Foreign key ${this.toString()} references a foreign key ${this.toColumn} ` +
+					`instead of a primary key on table ${model.table.name}`);
+
+				toPort = model.table.foreignKeys.get(this.toColumn);
+			}
+		} else {
+			toPort = model.table.primaryKeys.get(this.toColumn);
+		}
+
+		// establish the link
+		const link = this.fromPort.link<RefRightAngleLinkModel>(toPort);
+		if(this.layoutPointPositions.length > 0) {
+			link.setPoints(this.layoutPointPositions.map(point => link.generatePoint(point.x, point.y)));
+			link.setFirstAndLastPathsDirection();
+		}
+		this.setLink(link);
+		link.setRef(this);
+
+		if(this.relationship) {
+			link.addLabel(this.relationship);
+		}
+
+		model.model.addLink(link);
 	}
 
 	public setFromPort(fromPort: DefaultPortModel): Ref {
@@ -38,11 +173,7 @@ class Ref {
 		return this;
 	}
 
-	public static from(namespace: string, table: string, column: string) {
-		return new Ref(namespace, table, column);
-	}
-
-	public static fromFulllyQualified(fullyQualifiedName: string) {
+	public static parseFulllyQualifiedName(fullyQualifiedName: string): FullyQualifiedName {
 		const splits = fullyQualifiedName.split(".");
 		if(splits.length !== 3) {
 			console.log(splits);
@@ -50,24 +181,51 @@ class Ref {
 		}
 
 
-		return Ref.from(splits[0], splits[1], splits[2]);
+		return {
+			namespace: splits[0],
+			table: splits[1],
+			column: splits[2],
+		};
 	}
 
 	public toString(): string {
 		return `${this.toNamespace}.${this.toTable}.${this.toColumn}`;
 	}
+
+	/**
+	 * Update the link layout with new points or new positions of existing points
+	 *
+	 * @param points the new positions
+	 */
+	public setLayoutPointPositions(points: Array<Point>) {
+		this.layoutPointPositions = points.map(p => p.clone());
+	}
+
+	/**
+	 * Update a single point position  in the existing layout
+	 *
+	 * @param index the index of the position in the existing layout
+	 * @param point the new point position
+	 */
+	public setLayoutPointPosition(index: number, point: Point) {
+		this.layoutPointPositions[index] = point.clone();
+	}
 }
 
-class Table {
+class Table extends Entity<SchemaTable, DiagramModelNamespaces, void> {
+	public namespace: string;
 	public name: string;
 	public node: DefaultNodeModel;
 	public primaryKeys: Map<string, DefaultPortModel> = new Map();
 	public foreignKeys: Map<string, Ref> = new Map();
 	public columns: Map<string, DefaultPortModel> = new Map();
 
-	constructor(name: string, node: DefaultNodeModel) {
-		this.name = name;
-		this.node = node;
+	TABLE_COLOR = 'rgb(0,192,255)';
+
+	constructor(namespace: string) {
+		super();
+
+		this.namespace = namespace;
 	}
 
 	addPrimaryKey(name: string) {
@@ -75,10 +233,15 @@ class Table {
 		this.primaryKeys.set(name, port);
 	}
 
-	addForeignKey(name: string, ref: Ref, relationship?: string) {
-		const port = this.node.addPort(new RightAnglePortModel(true, name, name));
+	addForeignKey(name: string, ref: Ref, relationship?: string, layout?: LayoutForeignKey) {
+		const keyName = `${this.name}.${name}`
+		const port = this.node.addPort(new RightAnglePortModel(true, keyName, name));
 
 		ref.setFromPort(port);
+
+		if(layout && layout.points && layout.points.length > 0) {
+			ref.setLayoutPointPositions(layout.points.map(point => new Point(point.x, point.y)));
+		}
 
 		if(relationship) {
 			ref.setRelationship(relationship);
@@ -91,13 +254,105 @@ class Table {
 		const port = this.node.addPort(new RightAnglePortModel(true, name, name));
 		this.columns.set(name, port);
 	}
+
+	save(id: string) {
+		this.foreignKeys.forEach((ref, _) => ref.save(id));
+	}
+
+	load(id: string): void {
+		this.foreignKeys.forEach((ref, _) => ref.load(id));
+	}
+
+	loadSchema(schema: SchemaTable) {
+		this.name = schema.name;
+
+		var position = new Point(100, 100);
+
+		if(schema.layout && schema.layout.position) {
+			position = new Point(schema.layout.position.x, schema.layout.position.y);
+		}
+
+		const tableName = `${this.namespace}.${schema.name}`;
+		this.node = new DefaultNodeModel({
+			name: tableName,
+			color: this.TABLE_COLOR,
+			position: position,
+		});
+
+		// handle primary keys, foreign keys then the rest of the columns
+		if(schema.primary_keys) {
+			this.primaryKeys = new Map();
+
+			schema.primary_keys.forEach(key => {
+				this.addPrimaryKey(key.name);
+			});
+		}
+
+		if(schema.foreign_keys) {
+			this.foreignKeys = new Map();
+
+			schema.foreign_keys.forEach(key => {
+				const ref = new Ref(schema.name, this.node);
+				ref.loadSchema(key);
+				this.foreignKeys.set(key.name, ref);
+			})
+		}
+
+		if(schema.columns) {
+			this.columns = new Map();
+
+			schema.columns.forEach(col => {
+				this.addColumn(col.name);
+			})
+		}
+	}
+
+	syncSchema(schema: SchemaTable) {
+		if(this.foreignKeys) {
+			this.foreignKeys.forEach((ref, columnName) => {
+				if(!schema.foreign_keys) {
+					schema.foreign_keys = [];
+				}
+				const schemaForeignKey = schema.foreign_keys.find(key => key.name === columnName);
+				ref.syncSchema(schemaForeignKey);
+			});
+		}
+	}
+
+	finalize(model: DiagramModelNamespaces) {
+		// finalize table nodes
+		model.model.addNode(this.node);
+		console.log(`Table ${this.name} is added to diagram`);
+
+		// finalize foreign key nodes
+		this.foreignKeys.forEach((ref, _) => {
+			const namespace = model.namespaces.get(ref.toNamespace);
+
+			if(!namespace) {
+				throw new Error(`Incorrect namespace ${ref.toNamespace} from foreign key ref ${ref} for table ${this.name}`)
+			}
+
+			const table = namespace.tables.get(ref.toTable);
+
+			if(!table) {
+				throw new Error(`Incorrect table ${namespace.name}.${ref.toTable} from foreign key ref ${ref} for table ${this.name}`)
+			}
+
+			ref.finalize({
+				model: model.model,
+				table: table
+			});
+		});
+	}
 }
 
-class Namespace {
+class Namespace extends Entity<SchemaNamespace, DiagramModelNamespaces, void> {
 	public name: string;
 	public tables: Map<string, Table> = new Map();
 
-	constructor(name: string) {
+	constructor(name?: string) {
+		super();
+
 		this.name = name;
 	}
 
@@ -108,13 +363,55 @@ class Namespace {
 
 		this.tables.set(table.name, table);
 	}
+
+	save(id: string) {
+		this.tables.forEach(t => t.save(id));
+	}
+
+	load(id: string) {
+		this.tables.forEach(t => t.load(id));
+	}
+
+	loadSchema(schema: SchemaNamespace) {
+		this.name = schema.name;
+		this.tables = new Map();
+
+		schema.tables.forEach(t => {
+			const table = new Table(schema.name);
+			table.loadSchema(t);
+			this.tables.set(t.name, table);
+		});
+	}
+
+	syncSchema(schema: SchemaNamespace) {
+		this.tables.forEach(t => {
+			const schemaTable = schema.tables.find(table => table.name === t.name);
+			t.syncSchema(schemaTable)
+		});
+	}
+
+	finalize(model: DiagramModelNamespaces) {
+		this.tables.forEach((table, _) => table.finalize(model));
+	}
 }
 
-class Diagram {
+interface DiagramModelTable {
+	model: DiagramModel;
+	table: Table;
+}
+
+interface DiagramModelNamespaces {
+	model: DiagramModel;
+	namespaces: Map<string, Namespace>;
+}
+
+class Diagram extends Entity<Schema, DiagramEngine, DiagramModel> {
 	public name: string;
 	private namespaces: Map<string, Namespace> = new Map();
 
 	constructor(name: string) {
+		super();
+
 		this.name = name;
 	}
 
@@ -127,96 +424,61 @@ class Diagram {
 	}
 
 	/**
+	 * Save the diagram into local storage and return the reference id
+	 */
+	saveAs(): string {
+		const id = uuid();
+
+		this.save(id);
+
+		return id;
+	}
+
+	save(id: string) {
+		this.namespaces.forEach(n => n.save(id));
+	}
+
+	load(id: string): void {
+		var curSchema = loadSchema(this.name);
+		this.namespaces.forEach(n => n.load(id));
+		this.syncSchema(curSchema);
+		saveSchema(this.name, curSchema);
+	}
+
+	loadSchema(schema: Schema) {
+		this.namespaces = new Map();
+
+		schema.namespaces.forEach(n => {
+			const namespace = new Namespace();
+			namespace.loadSchema(n);
+			this.namespaces.set(n.name, namespace);
+		})
+	}
+
+	syncSchema(schema: Schema) {
+		this.namespaces.forEach(n => {
+			const namespace = schema.namespaces.find(namespace => namespace.name === n.name)
+			n.syncSchema(namespace);
+		});
+	}
+
+	/**
 	 * Finalize all the foreign keys and various component to make the diagram and draw them out to the world
 	 *
 	 * Any missing foreign key connections and typos will throw an error here.
 	 */
 	finalize(engine: DiagramEngine): DiagramModel {
 		const diagramModel = new DiagramModel();
+		const diagramModelNamespaces = {
+			model: diagramModel,
+			namespaces: this.namespaces
+		};
 
 		engine.getLinkFactories().registerFactory(new RightAngleLinkFactory());
 
-		this.namespaces.forEach(n => n.tables.forEach(t => {
-			// add table nodes
-			diagramModel.addNode(t.node);
-			console.log(`Table ${t.name} is added to diagram`);
+		this.namespaces.forEach((namespace, _) => namespace.finalize(diagramModelNamespaces));
 
-			// add foreign key nodes
-			t.foreignKeys.forEach((ref, name) => {
-				if(!this.namespaces.has(ref.toNamespace)) {
-					throw new Error(`Incorrect namespace ${ref.toNamespace} from foreign key ref ${ref} for table ${n.name}.${t.name}`)
-				}
-
-				if(!this.namespaces.get(ref.toNamespace).tables.has(ref.toTable)) {
-					throw new Error(`Incorrect table ${ref.toTable} from foreign key ref ${ref} for table ${n.name}.${t.name}`)
-				}
-
-				const table = this.namespaces.get(ref.toNamespace).tables.get(ref.toTable);
-				const existInPrimary = table.primaryKeys.has(ref.toColumn);
-				const existInForeign = table.foreignKeys.has(ref.toColumn);
-				const existInColumn = table.columns.has(ref.toColumn);
-
-				let toPort;
-
-				if(!existInPrimary) {
-					if(!existInForeign) {
-						if(!existInColumn) {
-							throw new Error(`Incorrect column ${ref.toColumn} from foreign key ` +
-								`ref ${ref.toString()} for table ${n.name}.${t.name}`);
-						} else {
-							console.warn(`Foreign key ${ref.toString()} references a normal column ${ref.toColumn} ` +
-								`instead of a primary key on table ${n.name}.${t.name}`);
-
-							toPort = table.columns.get(ref.toColumn);
-						}
-					} else {
-						console.warn(`Foreign key ${ref.toString()} references a foreign key ${ref.toColumn} ` +
-							`instead of a primary key on table ${n.name}.${t.name}`);
-
-						toPort = table.foreignKeys.get(ref.toColumn);
-					}
-				} else {
-					toPort = table.primaryKeys.get(ref.toColumn);
-				}
-
-				// establish the link
-				const link = ref.fromPort.link<RefRightAngleLinkModel>(toPort);
-
-				ref.setLink(link);
-				link.setRef(ref);
-
-				if(ref.relationship) {
-					link.addLabel(ref.relationship);
-				}
-
-				diagramModel.addLink(link);
-			});
-		}));
-
-		// diagramModel.getModels().forEach(item => {
-		// 	item.registerListener({
-		// 		eventDidFire: (e) => {
-		// 			if(e.function == "positionChanged") {
-		// 				console.log(`table moved [${e.entity.position.x}, ${e.entity.position.y}]`);
-		// 			} else if (e.function == "selectionChanged" && e.entity instanceof RefRightAngleLinkModel) {
-		// 				console.log("link moved", e.entity.points, e.entity.ref);
-		// 				var schema = loadSchema(this.name);
-		// 			} else {
-		// 				console.log(e.function);
-		// 			}
-		// 		}
-		// 	});
-		// });
-
-		// diagramModel.registerListener({
-		// 	nodesUpdated: (e) => console.log("nodesUpdated"),
-		// 	linksUpdate: (e) => console.log("linksUpdated"),
-		// 	offsetUpdated: (e) => console.log("offsetsUpdated"),
-		// 	zoomUpdated: (e) => console.log("zoomUpdated"),
-		// 	gridUpdated: (e) => console.log("gridUpdated"),
-		// 	selectionChanged: (e) => console.log("selectionUpdated"),
-		// 	entityRemoved: (e) => console.log("entityUpdated"),
-		// });
+		console.log(diagramModel);
 
 		return diagramModel;
 	}
@@ -239,21 +501,33 @@ class RefRightAngleLinkModel extends RightAngleLinkModel {
 
 		this.registerListener({
 			pointAdded: function(e) {
+				const link = e.entity as RefRightAngleLinkModel;
+				const ref = link.ref;
+
+				// update our layout with the latest point positions (it doesn't save anything yet)
+				ref.setLayoutPointPositions(link.points.map(p => p.position));
+
 				e.pointModel.registerListener({
 					positionChanged: function(e) {
 						const point: PointModel = e.entity;
+						const index = link.getPointIndex(point);
 						const prevPosition = _this.pointsLastPositions.has(point.getID())
 							? _this.pointsLastPositions.get(point.getID())
 							: null;
 
 						if(prevPosition &&
 							(prevPosition.x !== point.position.x || prevPosition.y !== point.position.y)) {
-							console.log(`point ${point.getID()} position changed to`, point.position);
+							ref.setLayoutPointPositions(link.points.map(p => p.position));
 						}
 
 						_this.pointsLastPositions.set(point.getID(), point.position.clone());
 					}
 				});
+			},
+
+			selectionChanged: function(e) {
+				const link: RefRightAngleLinkModel = e.entity;
+				console.log(`link ${link.getID()} selected, current points: `, link.points);
 			},
 
 			pointRemoved: function(e) {
@@ -327,6 +601,58 @@ class SchemaNamespace {
 
 class Schema {
 	namespaces: Array<SchemaNamespace>;
+}
+
+class ERDApp extends React.Component<any, any> {
+	id = null;
+
+	constructor(props: any) {
+		super(props);
+
+		this.save = this.save.bind(this);
+		this.load = this.load.bind(this);
+		this.updateLoadId = this.updateLoadId.bind(this);
+	}
+
+	updateLoadId(e) {
+		this.id = e.target.value;
+	}
+
+	load(e) {
+		const { diagram } = this.props;
+
+		diagram.load(this.id);
+
+		console.log("loaded saved id: " + this.id);
+	}
+
+	save(e) {
+		const { diagram } = this.props;
+
+		const id = diagram.saveAs();
+
+		console.log("diagram saved as id: ", id);
+	}
+
+	render() {
+		const { engine } = this.props;
+
+		return (
+			<DemoWorkspaceWidget
+				buttons={
+					<div>
+						<DemoButton onClick={this.save}>Save</DemoButton>
+						<DemoButton onClick={this.load}>Load</DemoButton>
+						<input onChange={this.updateLoadId} style={{ marginLeft: 5 }} type="text" name="load" />
+					</div>
+				}
+			>
+				<DemoCanvasWidget>
+					<CanvasWidget engine={engine} />
+				</DemoCanvasWidget>
+			</DemoWorkspaceWidget>
+		);
+	}
 }
 
 export default () => {
@@ -405,61 +731,8 @@ export default () => {
 		schema = loadSchema(diagramName);
 	}
 
-	var startingPositionX = 100;
-	var startingPositionY = 100;
-	const positionIncrement = 200;
-
-	var increment = 0;
 	const diagram = new Diagram(diagramName);
-
-	schema.namespaces.forEach(namespace => {
-		const _namespace = new Namespace(namespace.name);
-
-		namespace.tables.forEach(table => {
-
-			var position = new Point(startingPositionX + increment, startingPositionY);
-
-			if(table.layout && table.layout.position) {
-				position = new Point(table.layout.position.x, table.layout.position.y);
-			}
-
-			const node = new DefaultNodeModel({
-				name: table.name,
-				color: color,
-				position: position,
-			});
-			const _table = new Table(table.name, node);
-
-			increment += positionIncrement;
-
-			// handle primary keys, foreign keys then the rest of the columns
-			if(table.primary_keys) {
-				table.primary_keys.forEach(col => {
-					_table.addPrimaryKey(col.name);
-				});
-			}
-
-			if(table.foreign_keys) {
-				table.foreign_keys.forEach(col => {
-					_table.addForeignKey(
-						col.name,
-						Ref.fromFulllyQualified(col.reference).setRelationship(col.relationship)
-					);
-				})
-			}
-
-			if(table.columns) {
-				table.columns.forEach(col => {
-					_table.addColumn(col.name);
-				})
-			}
-
-			_namespace.addTable(_table);
-		});
-
-		diagram.addNamespace(_namespace);
-	});
-
+	diagram.loadSchema(schema);
 
 	console.log(diagram);
 
@@ -468,8 +741,6 @@ export default () => {
 	engine.setModel(model);
 
 	return (
-		<DemoCanvasWidget>
-			<CanvasWidget engine={engine} />
-		</DemoCanvasWidget>
+		<ERDApp engine={engine} diagram={diagram} ></ERDApp>
 	);
 };
