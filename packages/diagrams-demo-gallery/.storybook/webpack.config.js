@@ -8,9 +8,6 @@ module.exports = async ({ config, mode }) => {
 		resolve: {
 			extensions: ['.tsx', '.ts', '.js']
 		},
-		output: {
-			publicPath: 'https://thaibui.github.io/react-diagrams/'
-		},
 		module: {
 			rules: [
 				{
@@ -40,27 +37,27 @@ module.exports = async ({ config, mode }) => {
 				}
 			]
 		},
-		optimization: {
-			splitChunks: {
-				chunks: 'all',
-				minSize: 30 * 1024,
-				maxSize: 512 * 1024,
-				cacheGroups: {
-					vendor: {
-						test: /[\\/]node_modules[\\/]/,
-						// name(module) {
-						// 	const packageName = module.context.match(/[\\/]node_modules[\\/](.*?)([\\/]|$)/)[1];
-						// 	return `npm.${packageName.replace('@', '')}`;
-						// },
-						chunks: 'all',
-						reuseExistingChunk: true,
-						enforce: true
-					},
-				},
-			},
-		},
-		performance: {
-			maxAssetSize: maxAssetSize
-		},
+		// optimization: {
+		// 	splitChunks: {
+		// 		chunks: 'all',
+		// 		minSize: 30 * 1024,
+		// 		maxSize: 512 * 1024,
+		// 		cacheGroups: {
+		// 			vendor: {
+		// 				test: /[\\/]node_modules[\\/]/,
+		// 				// name(module) {
+		// 				// 	const packageName = module.context.match(/[\\/]node_modules[\\/](.*?)([\\/]|$)/)[1];
+		// 				// 	return `npm.${packageName.replace('@', '')}`;
+		// 				// },
+		// 				chunks: 'all',
+		// 				reuseExistingChunk: true,
+		// 				enforce: true
+		// 			},
+		// 		},
+		// 	},
+		// },
+		// performance: {
+		// 	maxAssetSize: maxAssetSize
+		// },
 	});
 };
